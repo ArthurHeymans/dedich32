@@ -45,11 +45,9 @@ pub const BULK_BLOCK_SIZE: usize = 512;
 /// Each page program writes 256 bytes of real data.
 pub const PAGE_SIZE: usize = 256;
 
-/// USB max packet size for bulk endpoints.
-/// NOTE: 512-byte HS bulk hangs (ISR never fires). Using 64 bytes as
-/// workaround -- the protocol 512-byte blocks are split/reassembled
-/// in the bulk worker.  Still runs on the HS PHY (480 Mbit/s link).
-pub const USB_MAX_PACKET_SIZE: u16 = 64;
+/// USB max packet size for High Speed bulk endpoints (480 Mbit/s).
+/// USB 2.0 spec requires wMaxPacketSize=512 for HS bulk (section 5.8.3).
+pub const USB_MAX_PACKET_SIZE: u16 = 512;
 
 /// Default SPI frequency at power-on (Hz).
 /// CH32V307 SPI1 on APB2 (72 MHz); DIV_4 gives 18 MHz.

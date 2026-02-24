@@ -69,7 +69,7 @@ type UsbHsDriver = Driver<'static, peripherals::USBHS, NR_EP_BUFFERS, 512>;
 #[embassy_executor::main(entry = "qingke_rt::entry")]
 async fn main(spawner: Spawner) -> ! {
     let cfg = Config {
-        rcc: hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI,
+        rcc: hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSE,
         ..Default::default()
     };
     let p = hal::init(cfg);
@@ -154,7 +154,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.must_spawn(usb_device_task(usb));
     spawner.must_spawn(bulk_worker_task(ep_in, ep_out));
 
-    hal::println!("DediCH32 ready (FS)");
+    hal::println!("DediCH32 ready (HS 480 Mbit/s)");
 
     // Main task has nothing else to do; park forever.
     loop {
