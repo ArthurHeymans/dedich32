@@ -2,6 +2,7 @@
 name = "dedich32"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 ch32-hal = { path = "../ch32-hal", features = [
