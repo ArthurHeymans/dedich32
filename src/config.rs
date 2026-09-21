@@ -1,12 +1,15 @@
 // Device identity and hardware constants.
 
 // =============================================================================
-// Device identity (emulating SF600 with firmware 7.2.21, Protocol V2)
+// Device identity (emulating SF600 with firmware 7.2.22, Protocol V3)
 // =============================================================================
 
 /// Response to CMD_READ_PROG_INFO (0x08).
-/// Format: "SF600 V:7.2.21 S6B000001"
-pub const DEVICE_STRING: &[u8] = b"SF600 V:7.2.21 S6B000001";
+/// Format: "SF600 V:7.2.22 S6B000001"
+///
+/// 7.2.22 selects Protocol V3 in flashprog (explicit addr_len + dummy
+/// cycles in the 12-byte read command); 7.2.21 and below get V2.
+pub const DEVICE_STRING: &[u8] = b"SF600 V:7.2.22 S6B000001";
 
 /// Response to CMD_READ_EEPROM (0x05): 16-byte serial ID.
 /// Decoded as buf[0]<<16 | buf[1]<<8 | buf[2].
@@ -50,8 +53,13 @@ pub const PAGE_SIZE: usize = 256;
 pub const USB_MAX_PACKET_SIZE: u16 = 512;
 
 /// Default SPI frequency at power-on (Hz).
-/// CH32V307 SPI1 on APB2 (72 MHz); DIV_4 gives 18 MHz.
-pub const DEFAULT_SPI_FREQ_HZ: u32 = 18_000_000;
+/// Protocol max is 24 MHz; the HAL programs the closest achievable
+/// clock that does not exceed the request (18 MHz on SPI2/DIV_8 at
+/// PCLK1 = 144 MHz).
+pub const DEFAULT_SPI_FREQ_HZ: u32 = 24_000_000;
+
+/// Maximum accepted SPI frequency (Hz). Matches the Dediprog protocol max.
+pub const MAX_SPI_FREQ_HZ: u32 = 24_000_000;
 
 // =============================================================================
 // USB HS endpoint buffer count

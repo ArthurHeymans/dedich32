@@ -2,7 +2,7 @@
 
 Open-source firmware for the **CH32V307** RISC-V microcontroller that emulates a
 **DediProg SF600** SPI flash programmer. It presents itself over USB as an SF600
-(VID `0x0483`, PID `0xDADA`, firmware V7.2.21, Protocol V2) so that existing
+(VID `0x0483`, PID `0xDADA`, firmware V7.2.22, Protocol V3) so that existing
 host-side tools — specifically [flashprog](https://flashprog.org/) — can use it
 to read, write, and erase SPI flash chips without requiring actual DediProg
 hardware.
@@ -28,14 +28,18 @@ A CH32V307-based board with:
 
 | Function      | Pin(s)  |
 |---------------|---------|
-| SPI flash CS  | PA4     |
-| SPI flash SCK | PA5     |
-| SPI MISO      | PA6     |
-| SPI MOSI      | PA7     |
+| SPI flash CS  | PB12    |
+| SPI flash SCK | PB13    |
+| SPI MISO      | PB14    |
+| SPI MOSI      | PB15    |
 | USB HS        | PB6/PB7 |
 | Pass LED      | PC0     |
 | Busy LED      | PC1     |
 | Error LED     | PC2     |
+
+When idle (CS deasserted) SCK/MOSI/CS are Hi-Z inputs — CS parked high
+with a pull-up — so an on-board controller can own the flash bus while
+the programmer is attached.
 
 A **WCH-Link** debugger is needed to flash the firmware.
 
