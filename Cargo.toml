@@ -25,6 +25,8 @@ embassy-futures = "0.1"
 qingke = "0.7"
 qingke-rt = "0.7"
 
+defmt = "1.1.1"
+defmt-rtt = { version = "1.3.0", features = ["disable-blocking-mode"] }
 panic-halt = "1.0"
 static_cell = "2"
 embedded-hal = "1.0"

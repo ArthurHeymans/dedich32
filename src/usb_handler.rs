@@ -5,8 +5,6 @@
 use embassy_usb::control::{InResponse, OutResponse, Request, RequestType};
 use embassy_usb::Handler;
 
-use ch32_hal as hal;
-
 use crate::config;
 use crate::leds::Leds;
 use crate::protocol::*;
@@ -46,7 +44,7 @@ impl DediprogHandler {
         let needs_read = (req.value & 0x01) != 0;
 
         if data.is_empty() || data.len() > 16 {
-            hal::println!("TRANSCEIVE OUT: bad length {}", data.len());
+            defmt::warn!("TRANSCEIVE OUT: bad length {}", data.len());
             return Some(OutResponse::Rejected);
         }
 
@@ -88,7 +86,7 @@ impl DediprogHandler {
         let s = config::DEVICE_STRING;
         let len = s.len().min(buf.len());
         buf[..len].copy_from_slice(&s[..len]);
-        hal::println!("READ_PROG_INFO: {} bytes", len);
+        defmt::debug!("READ_PROG_INFO: {} bytes", len);
         Some(InResponse::Accepted(&buf[..len]))
     }
 
@@ -125,7 +123,7 @@ impl DediprogHandler {
     // =========================================================================
 
     fn cmd_set_target(&self, req: Request) -> Option<OutResponse> {
-        hal::println!("SET_TARGET: {}", req.value);
+        defmt::debug!("SET_TARGET: {}", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -135,7 +133,7 @@ impl DediprogHandler {
 
     fn cmd_set_vcc(&self, req: Request) -> Option<OutResponse> {
         // No voltage switching hardware; the rail is always on. Accept and log.
-        hal::println!("SET_VCC: {} (no-op)", req.value);
+        defmt::debug!("SET_VCC: {} (no-op)", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -146,7 +144,7 @@ impl DediprogHandler {
     fn cmd_set_spi_clk(&self, req: Request) -> Option<OutResponse> {
         let speed = SpiSpeed::from_code(req.value);
         let freq = speed.frequency_hz();
-        hal::println!("SET_SPI_CLK: {} Hz (code {})", freq, req.value);
+        defmt::debug!("SET_SPI_CLK: {} Hz (code {})", freq, req.value);
         critical_section::with(|cs| {
             if let Some(flash) = SPI_FLASH.borrow(cs).borrow_mut().as_mut() {
                 flash.set_frequency(freq);
@@ -161,7 +159,7 @@ impl DediprogHandler {
 
     fn cmd_set_io_led(&mut self, req: Request) -> Option<OutResponse> {
         self.leds.set_from_wvalue(req.value);
-        hal::println!("SET_IO_LED: wValue=0x{:04x}", req.value);
+        defmt::debug!("SET_IO_LED: wValue=0x{:04x}", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -170,7 +168,7 @@ impl DediprogHandler {
     // =========================================================================
 
     fn cmd_set_standalone(&self, req: Request) -> Option<OutResponse> {
-        hal::println!("SET_STANDALONE: wValue={}", req.value);
+        defmt::debug!("SET_STANDALONE: wValue={}", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -184,7 +182,7 @@ impl DediprogHandler {
         if req.value == 0 {
             Some(OutResponse::Accepted)
         } else {
-            hal::println!("IO_MODE: reject multi-lane value {}", req.value);
+            defmt::warn!("IO_MODE: reject multi-lane value {}", req.value);
             Some(OutResponse::Rejected)
         }
     }
@@ -197,7 +195,7 @@ impl DediprogHandler {
         let setup = match parse_read_setup(data) {
             Some(v) => v,
             None => {
-                hal::println!("READ setup: bad packet (len={})", data.len());
+                defmt::warn!("READ setup: bad packet (len={})", data.len());
                 return Some(OutResponse::Rejected);
             }
         };
@@ -205,7 +203,7 @@ impl DediprogHandler {
         // Single-lane hardware: 8 clocks per dummy byte.
         let dummy_bytes = setup.dummy_cycles.div_ceil(8);
 
-        hal::println!(
+        defmt::debug!(
             "READ setup: addr=0x{:08x} blocks={} opcode=0x{:02x} mode={} addr_len={} dummy={}B",
             setup.address,
             setup.block_count,
@@ -238,7 +236,7 @@ impl DediprogHandler {
         let (block_count, mode_byte, opcode, address) = match parse_rw_cmd_v2(data) {
             Some(v) => v,
             None => {
-                hal::println!("WRITE setup: bad packet (len={})", data.len());
+                defmt::warn!("WRITE setup: bad packet (len={})", data.len());
                 return Some(OutResponse::Rejected);
             }
         };
@@ -251,7 +249,7 @@ impl DediprogHandler {
 
         let actual_opcode = if opcode != 0 { opcode } else { 0x02 };
 
-        hal::println!(
+        defmt::debug!(
             "WRITE setup: addr=0x{:08x} blocks={} opcode=0x{:02x} mode={} addr_len={}",
             address,
             block_count,
@@ -305,9 +303,9 @@ impl Handler for DediprogHandler {
     fn configured(&mut self, configured: bool) {
         self.configured = configured;
         if configured {
-            hal::println!("USB configured");
+            defmt::info!("USB configured");
         } else {
-            hal::println!("USB deconfigured");
+            defmt::info!("USB deconfigured");
         }
     }
 
@@ -325,7 +323,7 @@ impl Handler for DediprogHandler {
             CMD_SET_STANDALONE => self.cmd_set_standalone(req),
             CMD_IO_MODE => self.cmd_io_mode(req),
             CMD_SET_CS => {
-                hal::println!("SET_CS: wValue={}", req.value);
+                defmt::debug!("SET_CS: wValue={}", req.value);
                 critical_section::with(|cs| {
                     if let Some(flash) = SPI_FLASH.borrow(cs).borrow_mut().as_mut() {
                         if req.value == 0 {
@@ -338,14 +336,14 @@ impl Handler for DediprogHandler {
                 Some(OutResponse::Accepted)
             }
             CMD_SET_HOLD => {
-                hal::println!("SET_HOLD: ACK");
+                defmt::debug!("SET_HOLD: ACK");
                 Some(OutResponse::Accepted)
             }
             CMD_READ => self.cmd_read_setup(req, data),
             CMD_WRITE => self.cmd_write_setup(req, data),
             CMD_SET_SPI_CLK => self.cmd_set_spi_clk(req),
             _ => {
-                hal::println!("Unknown OUT cmd 0x{:02x}, ACK", req.request);
+                defmt::warn!("Unknown OUT cmd 0x{:02x}, ACK", req.request);
                 Some(OutResponse::Accepted)
             }
         }
@@ -376,7 +374,7 @@ impl Handler for DediprogHandler {
             }
             CMD_CHECK_SOCKET => self.cmd_check_socket(req, buf),
             _ => {
-                hal::println!("Unknown IN cmd 0x{:02x}, reject", req.request);
+                defmt::warn!("Unknown IN cmd 0x{:02x}, reject", req.request);
                 None
             }
         }

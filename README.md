@@ -46,7 +46,7 @@ A **WCH-Link** debugger is needed to flash the firmware.
 ## Prerequisites
 
 - **Rust nightly** — managed automatically via `rust-toolchain.toml`
-- **wlink** — WCH-Link flash tool (`cargo install wlink`)
+- **probe-rs** — flashing and RTT log output (`cargo install probe-rs-tools`)
 - **ch32-hal** — must be available at `../ch32-hal` (sibling directory, local
   path dependency)
 
@@ -66,8 +66,10 @@ size.
 cargo run --release
 ```
 
-This builds the firmware and flashes it via `wlink`, then opens a serial monitor
-for SDI debug output.
+This builds the firmware, flashes it via `probe-rs`, and displays defmt logs
+over RTT. Debug logging is enabled by default; override it for one build with,
+for example, `DEFMT_LOG=info cargo run --release`. RTT logging is non-blocking,
+so the firmware keeps running after the debugger is disconnected.
 
 ## Usage
 

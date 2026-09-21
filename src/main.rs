@@ -17,6 +17,7 @@ use ch32_hal::usb::EndpointDataBuffer512;
 use ch32_hal::usbhs::{Driver, InterruptHandler, WakeupInterruptHandler};
 use ch32_hal::{bind_interrupts, peripherals, Config};
 use critical_section::Mutex;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -75,8 +76,7 @@ async fn main(spawner: Spawner) -> ! {
     };
     let p = hal::init(cfg);
 
-    hal::debug::SDIPrint::enable();
-    hal::println!("DediCH32 starting up");
+    defmt::info!("DediCH32 starting up");
 
     // ---- SPI peripheral (async mode with DMA) ----
     let mut spi_config = spi::Config::default();
@@ -155,7 +155,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.must_spawn(usb_device_task(usb));
     spawner.must_spawn(bulk_worker_task(ep_in, ep_out));
 
-    hal::println!("DediCH32 ready (HS 480 Mbit/s)");
+    defmt::info!("DediCH32 ready (HS 480 Mbit/s)");
 
     // Main task has nothing else to do; park forever.
     loop {
@@ -224,7 +224,7 @@ async fn bulk_worker_task(
         // Take the SPI peripheral out of shared state for exclusive async use.
         let flash = critical_section::with(|cs| SPI_FLASH.borrow(cs).borrow_mut().take());
         let Some(mut flash) = flash else {
-            hal::println!("SPI flash not available for bulk operation");
+            defmt::warn!("SPI flash not available for bulk operation");
             continue;
         };
 
@@ -236,7 +236,7 @@ async fn bulk_worker_task(
                 addr_len,
                 dummy_bytes,
             } => {
-                hal::println!(
+                defmt::info!(
                     "Bulk READ: addr=0x{:08x} blocks={} opcode=0x{:02x} addr_len={} dummy={}B",
                     address,
                     block_count,
@@ -273,7 +273,7 @@ async fn bulk_worker_task(
                                 let slot = receiver.receive().await;
                                 if result.is_ok() {
                                     if let Err(e) = write_bulk_block(&mut ep_in, slot).await {
-                                        hal::println!("Bulk IN write error at block {}", i);
+                                        defmt::warn!("Bulk IN write error at block {}", i);
                                         result = Err(e);
                                     }
                                 }
@@ -288,7 +288,7 @@ async fn bulk_worker_task(
                 flash.end_transfer();
 
                 if usb_result.is_ok() {
-                    hal::println!("Bulk READ complete ({} blocks)", block_count);
+                    defmt::info!("Bulk READ complete ({} blocks)", block_count);
                 }
             }
 
@@ -298,7 +298,7 @@ async fn bulk_worker_task(
                 opcode,
                 addr_len,
             } => {
-                hal::println!(
+                defmt::info!(
                     "Bulk WRITE: addr=0x{:08x} blocks={} opcode=0x{:02x}",
                     address,
                     block_count,
@@ -322,7 +322,7 @@ async fn bulk_worker_task(
                                 let slot = sender.send().await;
                                 if result.is_ok() {
                                     if let Err(e) = read_bulk_block(&mut ep_out, slot).await {
-                                        hal::println!("Bulk OUT read error at block {}", i);
+                                        defmt::warn!("Bulk OUT read error at block {}", i);
                                         result = Err(e);
                                     }
                                 }
@@ -337,7 +337,7 @@ async fn bulk_worker_task(
                             {
                                 let slot = receiver.receive().await;
                                 // First 256 bytes are real data; rest is padding.
-                                let page_data = &slot[..PAGE_SIZE];
+                                let page_data = &(*slot)[..PAGE_SIZE];
                                 flash.write_page(opcode, address, addr_len, page_data).await;
                             }
                             receiver.receive_done();
@@ -354,7 +354,7 @@ async fn bulk_worker_task(
                 .await;
 
                 if usb_result.is_ok() {
-                    hal::println!("Bulk WRITE complete ({} blocks)", block_count);
+                    defmt::info!("Bulk WRITE complete ({} blocks)", block_count);
                 }
             }
         }
