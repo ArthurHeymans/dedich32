@@ -1,3 +1,5 @@
 [toolchain]
 channel = "nightly"
-components = ["rust-src"]
+# rust-src is needed for -Z build-std on the custom RISC-V target;
+# rustfmt/clippy are required by CI (and auto-installed from this file).
+components = ["rust-src", "rustfmt", "clippy"]

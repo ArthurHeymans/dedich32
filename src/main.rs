@@ -21,7 +21,9 @@ use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel::Channel;
-use embassy_usb::driver::{Direction, Endpoint as _, EndpointAddress, EndpointError, EndpointIn as _, EndpointOut as _};
+use embassy_usb::driver::{
+    Direction, Endpoint as _, EndpointAddress, EndpointError, EndpointIn as _, EndpointOut as _,
+};
 use embassy_usb::Builder;
 use panic_halt as _;
 use static_cell::StaticCell;
@@ -47,8 +49,7 @@ bind_interrupts!(struct Irqs {
 
 /// SPI flash peripheral -- borrowed by the handler for transceive (blocking)
 /// and taken by the worker task for bulk operations (async with DMA).
-pub static SPI_FLASH: Mutex<RefCell<Option<SpiFlash>>> =
-    Mutex::new(RefCell::new(None));
+pub static SPI_FLASH: Mutex<RefCell<Option<SpiFlash>>> = Mutex::new(RefCell::new(None));
 
 /// Pending bulk operation set by the handler, consumed by the worker task.
 pub static BULK_OP: Mutex<RefCell<Option<BulkOperation>>> = Mutex::new(RefCell::new(None));
@@ -82,9 +83,7 @@ async fn main(spawner: Spawner) -> ! {
     spi_config.frequency = Hertz::hz(DEFAULT_SPI_FREQ_HZ);
 
     let spi = Spi::new(
-        p.SPI1, p.PA5, p.PA7, p.PA6,
-        p.DMA1_CH3, p.DMA1_CH2,
-        spi_config,
+        p.SPI1, p.PA5, p.PA7, p.PA6, p.DMA1_CH3, p.DMA1_CH2, spi_config,
     );
     let cs = Output::new(p.PA4, Level::High, Default::default()); // CS deasserted (high)
 
@@ -318,9 +317,7 @@ async fn bulk_worker_task(
                                 let slot = receiver.receive().await;
                                 // First 256 bytes are real data; rest is padding.
                                 let page_data = &slot[..PAGE_SIZE];
-                                flash
-                                    .write_page(opcode, address, addr_len, page_data)
-                                    .await;
+                                flash.write_page(opcode, address, addr_len, page_data).await;
                             }
                             receiver.receive_done();
                             address = address.wrapping_add(PAGE_SIZE as u32);

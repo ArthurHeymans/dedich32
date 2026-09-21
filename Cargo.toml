@@ -22,8 +22,8 @@ embassy-sync = "0.7"
 embassy-time = "0.5"
 embassy-futures = "0.1"
 
-qingke = "0.6.1"
-qingke-rt = "0.6.1"
+qingke = "0.7"
+qingke-rt = "0.7"
 
 panic-halt = "1.0"
 static_cell = "2"
