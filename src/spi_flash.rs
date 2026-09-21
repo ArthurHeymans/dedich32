@@ -75,13 +75,7 @@ impl SpiFlash {
 
     /// Begin a SPI read sequence: assert CS, send opcode + address + dummy bytes.
     /// After this, call `read_block()` repeatedly, then `end_transfer()`.
-    pub async fn start_read(
-        &mut self,
-        opcode: u8,
-        address: u32,
-        addr_len: u8,
-        dummy_bytes: u8,
-    ) {
+    pub async fn start_read(&mut self, opcode: u8, address: u32, addr_len: u8, dummy_bytes: u8) {
         self.cs_assert();
 
         // Build command: opcode + address + dummy
@@ -125,13 +119,7 @@ impl SpiFlash {
     ///   1. Send Write Enable (WREN, 0x06)
     ///   2. Send Page Program (opcode + address + data)
     ///   3. Poll status register until WIP clears
-    pub async fn write_page(
-        &mut self,
-        opcode: u8,
-        address: u32,
-        addr_len: u8,
-        data: &[u8],
-    ) {
+    pub async fn write_page(&mut self, opcode: u8, address: u32, addr_len: u8, data: &[u8]) {
         // ---- Write Enable ----
         self.cs_assert();
         self.spi.write(&[config::SPI_CMD_WRITE_ENABLE]).await.ok();
