@@ -190,3 +190,67 @@ pub fn parse_rw_cmd_v2(data: &[u8]) -> Option<(u16, u8, u8, u32)> {
         | ((data[9] as u32) << 24);
     Some((block_count, mode, opcode, address))
 }
+
+// =============================================================================
+// Read setup parsing (Protocol V2/V3)
+// =============================================================================
+
+#[derive(Clone, Copy, Debug)]
+pub struct ReadSetup {
+    pub block_count: u16,
+    pub mode_byte: u8,
+    pub opcode: u8,
+    pub address: u32,
+    pub addr_len: u8,
+    pub dummy_cycles: u8,
+}
+
+/// Parse a V2/V3 read command packet into an explicit opcode/address/dummy
+/// description. V3 (`ReadMode::Configurable`, 12-byte packet) carries the
+/// address length and half the dummy clock count directly; older modes fall
+/// back to the opcode/mode tables. `dummy_cycles` is in SCK clocks; divide
+/// by 8 (ceiling) for the single-lane dummy byte count.
+pub fn parse_read_setup(data: &[u8]) -> Option<ReadSetup> {
+    let (block_count, mode_byte, opcode, address) = parse_rw_cmd_v2(data)?;
+    let read_mode = ReadMode::from_byte(mode_byte);
+
+    let opcode = if opcode != 0 { opcode } else { 0x03 };
+    let (addr_len, dummy_cycles) =
+        if matches!(read_mode, Some(ReadMode::Configurable)) && data.len() >= 12 {
+            // Dediprog protocol V3 stores address length directly. Byte 11 is half
+            // the actual dummy clock count, mirroring flashprog's prepare_rw_cmd_v3().
+            let addr_len = match data[10] {
+                4 => 4,
+                _ => 3,
+            };
+            (addr_len, data[11].saturating_mul(2))
+        } else {
+            let addr_len = match read_mode {
+                Some(mode) if mode.uses_4byte_addr() => 4,
+                _ => match opcode {
+                    0x13 | 0x0c | 0x3c | 0xbc | 0x6c | 0xec => 4,
+                    _ => 3,
+                },
+            };
+
+            let dummy_cycles = match opcode {
+                0x03 | 0x13 => 0,
+                0x0b | 0x0c => 8,
+                0x3b | 0x3c => 8,
+                0xbb | 0xbc => 4,
+                0x6b | 0x6c => 8,
+                0xeb | 0xec => 6,
+                _ => read_mode.map(|m| m.dummy_bytes() * 8).unwrap_or(0),
+            };
+            (addr_len, dummy_cycles)
+        };
+
+    Some(ReadSetup {
+        block_count,
+        mode_byte,
+        opcode,
+        address,
+        addr_len,
+        dummy_cycles,
+    })
+}

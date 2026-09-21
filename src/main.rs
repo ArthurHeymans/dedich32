@@ -82,10 +82,12 @@ async fn main(spawner: Spawner) -> ! {
     let mut spi_config = spi::Config::default();
     spi_config.frequency = Hertz::hz(DEFAULT_SPI_FREQ_HZ);
 
+    // ---- SPI2 on PB12-PB15 (J8, contiguous): CS=PB12, SCK=PB13, ----
+    // ---- MISO=PB14, MOSI=PB15. Default (no-remap) mapping. ----
     let spi = Spi::new(
-        p.SPI1, p.PA5, p.PA7, p.PA6, p.DMA1_CH3, p.DMA1_CH2, spi_config,
+        p.SPI2, p.PB13, p.PB15, p.PB14, p.DMA1_CH5, p.DMA1_CH4, spi_config,
     );
-    let cs = Output::new(p.PA4, Level::High, Default::default()); // CS deasserted (high)
+    let cs = Output::new(p.PB12, Level::High, Default::default()); // CS deasserted (high)
 
     // Store in shared state
     critical_section::with(|cs_tok| {
@@ -174,7 +176,8 @@ async fn usb_device_task(mut usb: embassy_usb::UsbDevice<'static, UsbHsDriver>) 
 // Bulk helpers -- split/reassemble 512-byte protocol blocks into USB packets
 // =============================================================================
 
-/// Write a full 512-byte block to the bulk IN endpoint (8 x 64-byte packets).
+/// Write a full 512-byte block to the bulk IN endpoint.
+/// With HS 512-byte max packets this is a single USB packet per block.
 async fn write_bulk_block(
     ep: &mut <UsbHsDriver as embassy_usb::driver::Driver<'static>>::EndpointIn,
     data: &[u8; BULK_BLOCK_SIZE],
@@ -233,6 +236,14 @@ async fn bulk_worker_task(
                 addr_len,
                 dummy_bytes,
             } => {
+                hal::println!(
+                    "Bulk READ: addr=0x{:08x} blocks={} opcode=0x{:02x} addr_len={} dummy={}B",
+                    address,
+                    block_count,
+                    opcode,
+                    addr_len,
+                    dummy_bytes
+                );
                 ep_in.wait_enabled().await;
                 flash
                     .start_read(opcode, address, addr_len, dummy_bytes)
@@ -245,7 +256,7 @@ async fn bulk_worker_task(
                     Channel::<CriticalSectionRawMutex, [u8; BULK_BLOCK_SIZE]>::new(&mut buf);
                 let (mut sender, mut receiver) = channel.split();
 
-                let ((), _usb_result) = embassy_futures::join::join(
+                let ((), usb_result) = embassy_futures::join::join(
                     // SPI producer: read blocks into channel slots
                     async {
                         for _i in 0..block_count {
@@ -257,12 +268,12 @@ async fn bulk_worker_task(
                     // USB consumer: send filled slots to the host
                     async {
                         let mut result: Result<(), EndpointError> = Ok(());
-                        for _i in 0..block_count {
+                        for i in 0..block_count {
                             {
                                 let slot = receiver.receive().await;
                                 if result.is_ok() {
                                     if let Err(e) = write_bulk_block(&mut ep_in, slot).await {
-                                        hal::println!("Bulk IN write error");
+                                        hal::println!("Bulk IN write error at block {}", i);
                                         result = Err(e);
                                     }
                                 }
@@ -275,6 +286,10 @@ async fn bulk_worker_task(
                 .await;
 
                 flash.end_transfer();
+
+                if usb_result.is_ok() {
+                    hal::println!("Bulk READ complete ({} blocks)", block_count);
+                }
             }
 
             BulkOperation::Write {
@@ -283,6 +298,12 @@ async fn bulk_worker_task(
                 opcode,
                 addr_len,
             } => {
+                hal::println!(
+                    "Bulk WRITE: addr=0x{:08x} blocks={} opcode=0x{:02x}",
+                    address,
+                    block_count,
+                    opcode
+                );
                 ep_out.wait_enabled().await;
 
                 // Zero-copy double buffer: USB receives into one slot
@@ -292,16 +313,16 @@ async fn bulk_worker_task(
                     Channel::<CriticalSectionRawMutex, [u8; BULK_BLOCK_SIZE]>::new(&mut buf);
                 let (mut sender, mut receiver) = channel.split();
 
-                let (_usb_result, ()) = embassy_futures::join::join(
+                let (usb_result, ()) = embassy_futures::join::join(
                     // USB producer: receive blocks from host into channel slots
                     async {
                         let mut result: Result<(), EndpointError> = Ok(());
-                        for _i in 0..block_count {
+                        for i in 0..block_count {
                             {
                                 let slot = sender.send().await;
                                 if result.is_ok() {
                                     if let Err(e) = read_bulk_block(&mut ep_out, slot).await {
-                                        hal::println!("Bulk OUT read error");
+                                        hal::println!("Bulk OUT read error at block {}", i);
                                         result = Err(e);
                                     }
                                 }
@@ -322,9 +343,19 @@ async fn bulk_worker_task(
                             receiver.receive_done();
                             address = address.wrapping_add(PAGE_SIZE as u32);
                         }
+
+                        // Target-side settle: some emulators acknowledge the
+                        // last page program before the new contents are
+                        // visible to an immediate verify pass. Only the final
+                        // completion takes this window, not every page.
+                        embassy_time::Timer::after_millis(25).await;
                     },
                 )
                 .await;
+
+                if usb_result.is_ok() {
+                    hal::println!("Bulk WRITE complete ({} blocks)", block_count);
+                }
             }
         }
 

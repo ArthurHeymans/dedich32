@@ -5,6 +5,8 @@
 use embassy_usb::control::{InResponse, OutResponse, Request, RequestType};
 use embassy_usb::Handler;
 
+use ch32_hal as hal;
+
 use crate::config;
 use crate::leds::Leds;
 use crate::protocol::*;
@@ -44,6 +46,7 @@ impl DediprogHandler {
         let needs_read = (req.value & 0x01) != 0;
 
         if data.is_empty() || data.len() > 16 {
+            hal::println!("TRANSCEIVE OUT: bad length {}", data.len());
             return Some(OutResponse::Rejected);
         }
 
@@ -85,6 +88,7 @@ impl DediprogHandler {
         let s = config::DEVICE_STRING;
         let len = s.len().min(buf.len());
         buf[..len].copy_from_slice(&s[..len]);
+        hal::println!("READ_PROG_INFO: {} bytes", len);
         Some(InResponse::Accepted(&buf[..len]))
     }
 
@@ -120,7 +124,8 @@ impl DediprogHandler {
     // CMD_SET_TARGET (0x04)
     // =========================================================================
 
-    fn cmd_set_target(&self, _req: Request) -> Option<OutResponse> {
+    fn cmd_set_target(&self, req: Request) -> Option<OutResponse> {
+        hal::println!("SET_TARGET: {}", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -128,7 +133,9 @@ impl DediprogHandler {
     // CMD_SET_VCC (0x09)
     // =========================================================================
 
-    fn cmd_set_vcc(&self, _req: Request) -> Option<OutResponse> {
+    fn cmd_set_vcc(&self, req: Request) -> Option<OutResponse> {
+        // No voltage switching hardware; the rail is always on. Accept and log.
+        hal::println!("SET_VCC: {} (no-op)", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -139,6 +146,7 @@ impl DediprogHandler {
     fn cmd_set_spi_clk(&self, req: Request) -> Option<OutResponse> {
         let speed = SpiSpeed::from_code(req.value);
         let freq = speed.frequency_hz();
+        hal::println!("SET_SPI_CLK: {} Hz (code {})", freq, req.value);
         critical_section::with(|cs| {
             if let Some(flash) = SPI_FLASH.borrow(cs).borrow_mut().as_mut() {
                 flash.set_frequency(freq);
@@ -153,6 +161,7 @@ impl DediprogHandler {
 
     fn cmd_set_io_led(&mut self, req: Request) -> Option<OutResponse> {
         self.leds.set_from_wvalue(req.value);
+        hal::println!("SET_IO_LED: wValue=0x{:04x}", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -160,7 +169,8 @@ impl DediprogHandler {
     // CMD_SET_STANDALONE (0x0A) -- ACK and ignore
     // =========================================================================
 
-    fn cmd_set_standalone(&self, _req: Request) -> Option<OutResponse> {
+    fn cmd_set_standalone(&self, req: Request) -> Option<OutResponse> {
+        hal::println!("SET_STANDALONE: wValue={}", req.value);
         Some(OutResponse::Accepted)
     }
 
@@ -168,9 +178,15 @@ impl DediprogHandler {
     // CMD_IO_MODE (0x15)
     // =========================================================================
 
-    fn cmd_io_mode(&self, _req: Request) -> Option<OutResponse> {
-        // We only support single I/O; dual/quad would need different HW.
-        Some(OutResponse::Accepted)
+    fn cmd_io_mode(&self, req: Request) -> Option<OutResponse> {
+        // Single-lane hardware only. Reject dual/quad so the host fails fast
+        // instead of clocking multi-lane opcodes out single-lane (corrupt).
+        if req.value == 0 {
+            Some(OutResponse::Accepted)
+        } else {
+            hal::println!("IO_MODE: reject multi-lane value {}", req.value);
+            Some(OutResponse::Rejected)
+        }
     }
 
     // =========================================================================
@@ -178,29 +194,32 @@ impl DediprogHandler {
     // =========================================================================
 
     fn cmd_read_setup(&self, _req: Request, data: &[u8]) -> Option<OutResponse> {
-        let (block_count, mode_byte, opcode, address) = match parse_rw_cmd_v2(data) {
+        let setup = match parse_read_setup(data) {
             Some(v) => v,
             None => {
+                hal::println!("READ setup: bad packet (len={})", data.len());
                 return Some(OutResponse::Rejected);
             }
         };
 
-        let read_mode = ReadMode::from_byte(mode_byte);
-        let (addr_len, dummy_bytes) = match read_mode {
-            Some(mode) => {
-                let addr_len = if mode.uses_4byte_addr() { 4 } else { 3 };
-                (addr_len, mode.dummy_bytes())
-            }
-            None => (3u8, 0u8),
-        };
+        // Single-lane hardware: 8 clocks per dummy byte.
+        let dummy_bytes = setup.dummy_cycles.div_ceil(8);
 
-        let actual_opcode = if opcode != 0 { opcode } else { 0x03 };
+        hal::println!(
+            "READ setup: addr=0x{:08x} blocks={} opcode=0x{:02x} mode={} addr_len={} dummy={}B",
+            setup.address,
+            setup.block_count,
+            setup.opcode,
+            setup.mode_byte,
+            setup.addr_len,
+            dummy_bytes
+        );
 
         let op = BulkOperation::Read {
-            address,
-            block_count,
-            opcode: actual_opcode,
-            addr_len,
+            address: setup.address,
+            block_count: setup.block_count,
+            opcode: setup.opcode,
+            addr_len: setup.addr_len,
             dummy_bytes,
         };
         critical_section::with(|cs| {
@@ -219,6 +238,7 @@ impl DediprogHandler {
         let (block_count, mode_byte, opcode, address) = match parse_rw_cmd_v2(data) {
             Some(v) => v,
             None => {
+                hal::println!("WRITE setup: bad packet (len={})", data.len());
                 return Some(OutResponse::Rejected);
             }
         };
@@ -230,6 +250,15 @@ impl DediprogHandler {
         };
 
         let actual_opcode = if opcode != 0 { opcode } else { 0x02 };
+
+        hal::println!(
+            "WRITE setup: addr=0x{:08x} blocks={} opcode=0x{:02x} mode={} addr_len={}",
+            address,
+            block_count,
+            actual_opcode,
+            mode_byte,
+            addr_len
+        );
 
         let op = BulkOperation::Write {
             address,
@@ -275,6 +304,11 @@ impl DediprogHandler {
 impl Handler for DediprogHandler {
     fn configured(&mut self, configured: bool) {
         self.configured = configured;
+        if configured {
+            hal::println!("USB configured");
+        } else {
+            hal::println!("USB deconfigured");
+        }
     }
 
     fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
@@ -291,6 +325,7 @@ impl Handler for DediprogHandler {
             CMD_SET_STANDALONE => self.cmd_set_standalone(req),
             CMD_IO_MODE => self.cmd_io_mode(req),
             CMD_SET_CS => {
+                hal::println!("SET_CS: wValue={}", req.value);
                 critical_section::with(|cs| {
                     if let Some(flash) = SPI_FLASH.borrow(cs).borrow_mut().as_mut() {
                         if req.value == 0 {
@@ -302,11 +337,17 @@ impl Handler for DediprogHandler {
                 });
                 Some(OutResponse::Accepted)
             }
-            CMD_SET_HOLD => Some(OutResponse::Accepted),
+            CMD_SET_HOLD => {
+                hal::println!("SET_HOLD: ACK");
+                Some(OutResponse::Accepted)
+            }
             CMD_READ => self.cmd_read_setup(req, data),
             CMD_WRITE => self.cmd_write_setup(req, data),
             CMD_SET_SPI_CLK => self.cmd_set_spi_clk(req),
-            _ => Some(OutResponse::Accepted),
+            _ => {
+                hal::println!("Unknown OUT cmd 0x{:02x}, ACK", req.request);
+                Some(OutResponse::Accepted)
+            }
         }
     }
 
@@ -334,7 +375,10 @@ impl Handler for DediprogHandler {
                 Some(InResponse::Accepted(&buf[..len]))
             }
             CMD_CHECK_SOCKET => self.cmd_check_socket(req, buf),
-            _ => None,
+            _ => {
+                hal::println!("Unknown IN cmd 0x{:02x}, reject", req.request);
+                None
+            }
         }
     }
 }
