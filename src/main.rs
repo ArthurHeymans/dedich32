@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+mod aux;
+mod aux_usb;
 mod config;
 mod leds;
 mod protocol;
@@ -10,9 +12,10 @@ mod usb_handler;
 use core::cell::RefCell;
 
 use ch32_hal as hal;
-use ch32_hal::gpio::{Level, Output};
+use ch32_hal::gpio::{Input, Level, Output, OutputOpenDrain, Pull, Speed};
 use ch32_hal::spi::{self, Spi};
 use ch32_hal::time::Hertz;
+use ch32_hal::usart::{self, Uart};
 use ch32_hal::usb::EndpointDataBuffer512;
 use ch32_hal::usbhs::{Driver, InterruptHandler, WakeupInterruptHandler};
 use ch32_hal::{bind_interrupts, peripherals, Config};
@@ -42,6 +45,7 @@ use crate::usb_handler::DediprogHandler;
 bind_interrupts!(struct Irqs {
     USBHS => InterruptHandler<peripherals::USBHS>;
     USBHS_WKUP => WakeupInterruptHandler<peripherals::USBHS>;
+    USART2 => usart::InterruptHandler<peripherals::USART2>;
 });
 
 // =============================================================================
@@ -100,6 +104,26 @@ async fn main(spawner: Spawner) -> ! {
     let led_error = Output::new(p.PC2, Level::Low, Default::default());
     let leds = Leds::new(led_pass, led_busy, led_error);
 
+    // USART2 uses PA2/PA3 and DMA1 channels 7/6 (SPI2 uses 5/4).
+    let uart = Uart::new(
+        p.USART2,
+        p.PA3,
+        p.PA2,
+        Irqs,
+        p.DMA1_CH7,
+        p.DMA1_CH6,
+        usart::Config::default(),
+    )
+    .unwrap();
+    let (uart_tx, uart_rx) = uart.split();
+    // PB8-PB11 are FT (5 V-tolerant) digital pins. Released by default.
+    let board_gpio = aux::BoardGpio::new(
+        OutputOpenDrain::new(p.PB8, Level::High, Speed::Low),
+        OutputOpenDrain::new(p.PB9, Level::High, Speed::Low),
+        Input::new(p.PB10, Pull::None),
+        Input::new(p.PB11, Pull::None),
+    );
+
     // ---- USB HS driver ----
     static EP_BUFFER: StaticCell<[EndpointDataBuffer512; NR_EP_BUFFERS]> = StaticCell::new();
     let ep_buffer = EP_BUFFER.init(core::array::from_fn(|_| EndpointDataBuffer512::default()));
@@ -149,11 +173,23 @@ async fn main(spawner: Spawner) -> ! {
 
     drop(func); // release borrow on builder
 
+    // DediPico-compatible auxiliary interface, independent of flashprog's interface 0.
+    let mut aux_func = builder.function(0xFF, 0xD1, 0x01);
+    let mut aux_iface = aux_func.interface();
+    let mut aux_alt = aux_iface.alt_setting(0xFF, 0xD1, 0x01, None);
+    let aux_out =
+        aux_alt.endpoint_bulk_out(Some(EndpointAddress::from_parts(3, Direction::Out)), 64);
+    let aux_in = aux_alt.endpoint_bulk_in(Some(EndpointAddress::from_parts(4, Direction::In)), 64);
+    drop(aux_func);
+
     // ---- Build and launch ----
     let usb = builder.build();
 
     spawner.must_spawn(usb_device_task(usb));
     spawner.must_spawn(bulk_worker_task(ep_in, ep_out));
+    spawner.must_spawn(aux_usb::uart_rx_task(uart_rx));
+    spawner.must_spawn(aux_usb::uart_tx_task(uart_tx));
+    spawner.must_spawn(aux_usb::aux_task(aux_out, aux_in, board_gpio));
 
     defmt::info!("DediCH32 ready (HS 480 Mbit/s)");
 

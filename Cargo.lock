@@ -187,6 +187,7 @@ version = "0.1.0"
 dependencies = [
  "ch32-hal",
  "critical-section",
+ "dedipico-protocol",
  "defmt",
  "defmt-rtt",
  "embassy-executor",
@@ -201,6 +202,10 @@ dependencies = [
  "qingke-rt",
  "static_cell",
 ]
+
+[[package]]
+name = "dedipico-protocol"
+version = "0.1.0"
 
 [[package]]
 name = "defmt"

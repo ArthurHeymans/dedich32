@@ -66,5 +66,5 @@ pub const MAX_SPI_FREQ_HZ: u32 = 24_000_000;
 // =============================================================================
 
 /// Number of endpoint buffers to allocate for the USBHS driver.
-/// Need at least 3: EP0 (control) + EP1 OUT (bulk) + EP2 IN (bulk).
-pub const NR_EP_BUFFERS: usize = 4;
+/// EP0 control + EP1/2 flash bulk + EP3/4 auxiliary bulk.
+pub const NR_EP_BUFFERS: usize = 5;
