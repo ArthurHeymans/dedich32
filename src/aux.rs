@@ -1,5 +1,5 @@
+pub use crate::aux_protocol::*;
 use ch32_hal::gpio::{Input, OutputOpenDrain};
-pub use dedipico_protocol::aux::*;
 use embassy_time::{Duration, Instant};
 
 #[derive(Clone, Copy)]

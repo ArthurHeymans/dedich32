@@ -2,6 +2,7 @@
 #![no_main]
 
 mod aux;
+mod aux_protocol;
 mod aux_usb;
 mod config;
 mod leds;

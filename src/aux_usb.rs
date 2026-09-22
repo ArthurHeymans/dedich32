@@ -1,6 +1,6 @@
+use crate::aux_protocol::*;
 use ch32_hal::peripherals::USART2;
 use ch32_hal::usart::{self, UartRx, UartTx};
-use dedipico_protocol::aux::*;
 use embassy_futures::select::{select, select4, Either, Either4};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;

@@ -21,7 +21,6 @@ embassy-usb = "0.5.1"
 embassy-sync = "0.7"
 embassy-time = "0.5"
 embassy-futures = "0.1"
-dedipico-protocol = { path = "../dedipico/shared/dedipico-protocol" }
 
 qingke = "0.7"
 qingke-rt = "0.7"
