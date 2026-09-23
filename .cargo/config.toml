@@ -5,6 +5,9 @@ target = "riscv32imfc-unknown-none-elf.json"
 build-std = ["core"]
 json-target-spec = true
 
+[env]
+#DEFMT_LOG = "debug"
+DEFMT_LOG = "error"
+
 [target.riscv32imfc-unknown-none-elf]
-runner = "wlink flash --enable-sdi-print --watch-serial"
-#runner = "probe-rs run --chip CH32V307"
+runner = "probe-rs run --chip CH32V307VCT6 --rtt-channel-mode no-block-skip"

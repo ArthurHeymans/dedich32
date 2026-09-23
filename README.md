@@ -21,6 +21,7 @@ hardware.
 - **Configurable SPI clock** — 8 presets from 375 KHz to 24 MHz
 - **LED indicators** — Pass / Busy / Error LEDs matching real SF600 behavior
 - **Async DMA** for bulk transfers, blocking SPI for short transceive commands
+- **Auxiliary USB interface** for a UART bridge and board reset/power-switch control
 
 ## Hardware Requirements
 
@@ -36,17 +37,30 @@ A CH32V307-based board with:
 | Pass LED      | PC0     |
 | Busy LED      | PC1     |
 | Error LED     | PC2     |
+| UART TX / RX | PA2 / PA3 (USART2, 3.3 V TTL) |
+| RESET# / POWER_SW# | PB8 / PB9 (FT pins, open-drain) |
+| Board power / auxiliary state | PB10 / PB11 (FT digital inputs) |
 
 When idle (CS deasserted) SCK/MOSI/CS are Hi-Z inputs — CS parked high
 with a pull-up — so an on-board controller can own the flash bus while
 the programmer is attached.
+
+PB8–PB11 are marked FT (5 V-tolerant digital inputs) in the CH32V307
+datasheet; the board-state inputs can sense 5 V digital signals, but neither
+has an internal pull-up. RESET# and POWER_SW# only pull low or release.
+For a 5 V pull-up on these control lines, use an external transistor/level
+shifter unless the electrical design has been checked for open-drain operation;
+FT is specified as an input rating. POWER_SW# is a motherboard power-button
+input, not a switched power supply. UART remains 3.3 V TTL on PA2/PA3; wire
+TX/RX crossed with a common ground. Verify the reference board exposes these
+pins before connecting a target.
 
 A **WCH-Link** debugger is needed to flash the firmware.
 
 ## Prerequisites
 
 - **Rust nightly** — managed automatically via `rust-toolchain.toml`
-- **wlink** — WCH-Link flash tool (`cargo install wlink`)
+- **probe-rs** — flashing and RTT log output (`cargo install probe-rs-tools`)
 - **ch32-hal** — must be available at `../ch32-hal` (sibling directory, local
   path dependency)
 
@@ -66,8 +80,10 @@ size.
 cargo run --release
 ```
 
-This builds the firmware and flashes it via `wlink`, then opens a serial monitor
-for SDI debug output.
+This builds the firmware, flashes it via `probe-rs`, and displays defmt logs
+over RTT. Debug logging is enabled by default; override it for one build with,
+for example, `DEFMT_LOG=info cargo run --release`. RTT logging is non-blocking,
+so the firmware keeps running after the debugger is disconnected.
 
 ## Usage
 
@@ -80,6 +96,21 @@ flashprog -p dediprog:dev=0 --flash-name
 flashprog -p dediprog:dev=0 -r dump.bin
 flashprog -p dediprog:dev=0 -w firmware.bin
 ```
+
+Interface 0 remains SF600-compatible. Interface 1 uses the same auxiliary
+packet protocol as `../dedipico` (EP3 OUT and EP4 IN, 64-byte bulk packets),
+so its `tools/dedipicoctl` daemon and CLI can provide a UART PTY and board
+control while flashprog runs. The GPIO bit assignments are reset, power switch,
+power state, and auxiliary state in that order. UART starts at 115200 baud.
+
+```sh
+(cd ../dedipico/tools/dedipicoctl && cargo run --release --target x86_64-unknown-linux-gnu -- daemon 115200)
+# In another terminal, use: ... -- state | reset | power | poweroff
+```
+
+The daemon's device selection assumes only one matching DediProg-emulating
+unit is attached. Keep the state inputs at valid logic levels; neither input
+has an internal pull-up.
 
 ## Examples
 
